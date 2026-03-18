@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pth
+.venv/
+venv/
+
+# Model file (too large for GitHub)
+backend/plant_disease_model.pth
+backend/plant_disease_model_fixed.pth
+
+# Database
+backend/users.db
+
+# Environment variables
+.env
+
+# VSCode
+.vscode/
+
+# Jupyter
+.ipynb_checkpoints/
+minor-project.ipynb
+
+# OS
+.DS_Store
+Thumbs.db

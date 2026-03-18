@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+torch
+torchvision
+streamlit
+requests
+pillow
+opencv-python
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+python-dotenv
