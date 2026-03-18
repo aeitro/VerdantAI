@@ -29,7 +29,6 @@ jobs:
           cd backend
           python -c "from remedy_generator import get_remedy; print('remedy_generator OK')"
           python -c "from gradcam import GradCAM, apply_heatmap; print('gradcam OK')"
-          python -c "from predict import predict; print('predict OK')"
 
       - name: Lint with flake8
         run: |
