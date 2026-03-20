@@ -26,3 +26,8 @@ minor-project.ipynb
 # OS
 .DS_Store
 Thumbs.db
+auth/users.db
+auth/users.db-shm
+auth/users.db-wal
+__pycache__/
+*.pyc

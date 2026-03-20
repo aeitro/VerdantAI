@@ -7,7 +7,9 @@ import sys
 import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'backend')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from remedy_generator import get_remedy
+from auth.auth_ui import require_auth
 
 
 
@@ -20,6 +22,9 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="collapsed",
 )
+
+# ── Auth gate — must come right after set_page_config ────────────────────────
+require_auth()
 
 # ── Custom CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
