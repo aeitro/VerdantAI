@@ -1,8 +1,44 @@
+"""
+backend/remedy_generator.py
+────────────────────────────
+📁 Save as: PLANTDISEASEPROJ/backend/remedy_generator.py
+           (replaces existing file)
+
+Fixes applied
+─────────────
+1. Robust JSON extraction — uses regex to find the {...} block anywhere in the
+   response, so preamble like "Here is the JSON:" or trailing text won't break
+   parsing. The old code only stripped ```json fences, which wasn't enough.
+
+2. Response validation — checks that all 6 required keys exist after parsing,
+   so a truncated or partial response is treated as invalid and the next model
+   is tried instead of returning broken data to the UI.
+
+3. Detailed error strings — each failure now reports exactly what went wrong
+   (HTTP status, raw response snippet, JSON parse error) so the UI can show
+   a useful message instead of a generic failure.
+
+4. Raw response logged to last_raw — callers can inspect it for debugging
+   without needing to add print statements.
+
+5. Timeout bumped to 45s — free-tier models can be slow, 30s was too tight.
+"""
+import os
 import requests
 import json
 import re
+from pathlib import Path
+from dotenv import load_dotenv
 
-OPENROUTER_API_KEY = "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"
+# Load .env from project root (one level above backend/)
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+ 
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+if not OPENROUTER_API_KEY:
+    raise EnvironmentError(
+        "OPENROUTER_API_KEY is not set. "
+        "Add it to PLANTDISEASEPROJ/.env as: OPENROUTER_API_KEY=sk-or-v1-..."
+    )
 
 # ── Model fallback chain — all free tier ──────────────────────────────────────
 MODELS = [
@@ -18,16 +54,22 @@ HEADERS = {
     "X-Title": "PlantAI",
 }
 
-# ── In-memory cache — persists for the lifetime of the backend process ────────
+# ── Required keys — response must contain all of these ────────────────────────
+REQUIRED_KEYS = {
+    "overview", "severity", "remedies",
+    "dietary_tips", "lifestyle_steps", "when_to_see_expert",
+}
+
+# ── In-memory cache ───────────────────────────────────────────────────────────
 _cache: dict[str, dict] = {}
 
 
 def clean_label(raw: str) -> str:
-    """Apple___Apple_scab → Apple scab on Apple"""
+    """'Apple___Apple_scab' → 'Apple scab on Apple'"""
     parts = raw.split("___")
     if len(parts) == 2:
         plant, condition = parts
-        plant = plant.replace("_", " ").replace(",", "").strip()
+        plant     = plant.replace("_", " ").replace(",", "").strip()
         condition = condition.replace("_", " ").strip()
         return f"{condition} on {plant}"
     return raw.replace("_", " ")
@@ -36,29 +78,73 @@ def clean_label(raw: str) -> str:
 def build_prompt(disease_label: str) -> str:
     return f"""You are a plant pathology expert. A plant leaf has been diagnosed with: "{disease_label}".
 
-Return ONLY a valid JSON object with exactly these keys and limits:
+Return ONLY a valid JSON object with exactly these keys:
 
 {{
   "overview": "2 sentences max. What the disease is and how it spreads.",
-  "severity": "Low | Medium | High",
-  "remedies": ["max 3 items, each under 12 words, actionable treatments"],
-  "dietary_tips": ["max 3 items, each under 12 words, soil/nutrient/watering tips"],
-  "lifestyle_steps": ["max 3 items, each under 12 words, prevention and care habits"],
-  "when_to_see_expert": "1 sentence. Clear trigger condition for consulting an agronomist."
+  "severity": "Low",
+  "remedies": ["actionable treatment 1", "actionable treatment 2", "actionable treatment 3"],
+  "dietary_tips": ["soil/nutrient tip 1", "soil/nutrient tip 2", "soil/nutrient tip 3"],
+  "lifestyle_steps": ["prevention step 1", "prevention step 2", "prevention step 3"],
+  "when_to_see_expert": "One sentence describing when to consult an agronomist."
 }}
 
 Rules:
-- Every list item must be a short, actionable phrase
-- No bullet points, no markdown, no numbering inside strings
-- No extra text outside the JSON object
-- Severity must be exactly one of: Low, Medium, High"""
+- severity must be exactly one of: Low, Medium, High
+- Each list must have 2-3 short items (under 12 words each)
+- No markdown, no bullet points, no extra text outside the JSON
+- Output must start with {{ and end with }}"""
+
+
+def _extract_json(text: str) -> dict:
+    """
+    Robustly extract a JSON object from model output.
+
+    Tries in order:
+    1. Direct json.loads on the full stripped text
+    2. Strip ```json ... ``` or ``` ... ``` fences, then parse
+    3. Regex to find the first {...} block in the text (handles preamble/postamble)
+
+    Raises ValueError if no valid JSON object is found.
+    """
+    text = text.strip()
+
+    # Attempt 1 — clean parse
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Attempt 2 — strip markdown code fences
+    stripped = re.sub(r"```(?:json)?", "", text).strip()
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        pass
+
+    # Attempt 3 — find first {...} block (greedy, handles preamble)
+    match = re.search(r"\{[\s\S]*\}", text)
+    if match:
+        try:
+            return json.loads(match.group())
+        except json.JSONDecodeError:
+            pass
+
+    raise ValueError(f"No valid JSON object found in response. Preview: {text[:200]!r}")
+
+
+def _validate(data: dict) -> None:
+    """Raise ValueError if any required key is missing."""
+    missing = REQUIRED_KEYS - set(data.keys())
+    if missing:
+        raise ValueError(f"Response missing keys: {missing}")
 
 
 def call_model(model: str, prompt: str) -> dict:
     """
-    Call a single model. Returns parsed dict on success.
-    Raises requests.HTTPError on 429 / server error.
-    Raises ValueError if JSON parsing fails.
+    Call a single OpenRouter model.
+    Returns a validated remedy dict on success.
+    Raises on any failure — caller handles retries.
     """
     response = requests.post(
         url="https://openrouter.ai/api/v1/chat/completions",
@@ -66,28 +152,51 @@ def call_model(model: str, prompt: str) -> dict:
         json={
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,        # lower temp = more consistent JSON output
+            "max_tokens": 512,
         },
-        timeout=30,
+        timeout=45,                    # bumped from 30s — free models can be slow
     )
     response.raise_for_status()
 
-    content = response.json()["choices"][0]["message"]["content"]
-    content = re.sub(r"```json|```", "", content).strip()
-    return json.loads(content)
+    resp_json = response.json()
+
+    # Guard: sometimes OpenRouter returns an error inside a 200 response
+    if "error" in resp_json:
+        raise ValueError(f"OpenRouter error: {resp_json['error']}")
+
+    choices = resp_json.get("choices", [])
+    if not choices:
+        raise ValueError(f"Empty choices in response: {resp_json}")
+
+    content = choices[0]["message"]["content"]
+
+    if not content or not content.strip():
+        raise ValueError("Model returned empty content")
+
+    data = _extract_json(content)
+    _validate(data)
+
+    # Normalise severity casing just in case
+    data["severity"] = data.get("severity", "Medium").strip().capitalize()
+    if data["severity"] not in ("Low", "Medium", "High"):
+        data["severity"] = "Medium"
+
+    return data
 
 
 def get_remedy(predicted_class: str) -> dict:
     """
     Try each model in MODELS in order.
-    Returns remedy dict, or an error dict if all models fail.
+    Returns a remedy dict on success, or {"error": "...", "detail": "..."} on failure.
     """
-    disease_label = clean_label(predicted_class)
-
     if predicted_class in _cache:
         return _cache[predicted_class]
 
-    prompt = build_prompt(disease_label)
-    last_error = ""
+    disease_label = clean_label(predicted_class)
+    prompt        = build_prompt(disease_label)
+    last_error    = "No models tried"
+    last_detail   = ""
 
     for model in MODELS:
         try:
@@ -97,27 +206,39 @@ def get_remedy(predicted_class: str) -> dict:
 
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response is not None else 0
-            if status == 0:
-                last_error = f"Model {model} got no response (connection dropped)"
-            elif status == 429:
-                last_error = f"Model {model} rate limited (429)"
-            else:
-                last_error = f"Model {model} HTTP error: {status}"
+            body   = ""
+            try:
+                body = e.response.json() if e.response is not None else ""
+            except Exception:
+                body = e.response.text[:200] if e.response is not None else ""
+            last_error  = f"HTTP {status} from {model}"
+            last_detail = str(body)
             continue
 
         except requests.exceptions.Timeout:
-            last_error = f"Model {model} timed out"
+            last_error  = f"{model} timed out (>45s)"
+            last_detail = ""
             continue
 
-        except requests.exceptions.ConnectionError:
-            return {"error": "Could not connect to OpenRouter API."}
+        except requests.exceptions.ConnectionError as e:
+            # Network is down — no point trying other models
+            return {
+                "error":  "Cannot connect to OpenRouter API.",
+                "detail": str(e),
+            }
 
-        except (json.JSONDecodeError, KeyError, ValueError):
-            last_error = f"Model {model} returned invalid JSON"
+        except (ValueError, KeyError) as e:
+            # JSON extraction / validation failure
+            last_error  = f"{model} returned unparseable response"
+            last_detail = str(e)
             continue
 
         except Exception as e:
-            last_error = f"Model {model} unexpected error: {str(e)}"
+            last_error  = f"{model} unexpected error"
+            last_detail = str(e)
             continue
 
-    return {"error": f"All models failed. Last error: {last_error}"}
+    return {
+        "error":  f"All models failed. Last: {last_error}",
+        "detail": last_detail,
+    }

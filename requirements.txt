@@ -1,12 +1,35 @@
+# ================================================================
+# PlantAI — requirements.txt
+# 📁 Save as: PLANTDISEASEPROJ/requirements.txt
+# ================================================================
+
+# ── Backend ──────────────────────────────────────────────────────
 fastapi
 uvicorn
-torch
-torchvision
-streamlit
-requests
-pillow
-opencv-python
-python-jose[cryptography]
-passlib[bcrypt]
 python-multipart
 python-dotenv
+
+# ── ML / Vision ──────────────────────────────────────────────────
+torch
+torchvision
+pillow
+opencv-python
+
+# ── Auth ─────────────────────────────────────────────────────────
+python-jose[cryptography]
+passlib[bcrypt]
+
+# ── HTTP ─────────────────────────────────────────────────────────
+requests
+
+# ── Frontend ─────────────────────────────────────────────────────
+streamlit
+
+# ── NEW: Charts ───────────────────────────────────────────────────
+plotly
+
+# ── NEW: PDF generation ───────────────────────────────────────────
+reportlab
+
+# ── NEW: Data export (CSV) ────────────────────────────────────────
+pandas
