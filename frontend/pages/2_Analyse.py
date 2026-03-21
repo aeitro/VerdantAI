@@ -692,13 +692,13 @@ if not st.session_state.get(_save_key):
         remedy_str = json.dumps(remedy) if remedy else json.dumps({})
 
         save_scan(
-            username        = username,
-            filename        = uploaded.name,
-            predicted_class = pred_raw,
-            confidence      = confidence,
-            severity        = severity_val,
-            remedy_json     = remedy_str,
-            image_blob      = img_bytes,
+            username=username,
+            filename=uploaded.name,
+            predicted_class=pred_raw,
+            confidence=confidence,
+            severity=severity_val,
+            remedy_json=remedy_str,
+            image_blob=img_bytes,
         )
         st.session_state[_save_key] = True
     except Exception as e:

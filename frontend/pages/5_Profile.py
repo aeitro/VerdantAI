@@ -221,7 +221,7 @@ healthy_count   = round(total_scans * stats["healthy_rate"] / 100) if total_scan
 diseased_count  = total_scans - healthy_count
 
 # ── Page header ───────────────────────────────────────────────────────────────
-st.markdown(f"""
+st.markdown("""
 <div class="page-title">Profile</div>
 <div class="page-sub">Your account overview and scan statistics</div>
 """, unsafe_allow_html=True)

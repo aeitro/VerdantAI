@@ -245,7 +245,8 @@ def render_sidebar(active_page: str) -> None:
         # Logout
         if st.button("Log out", key="sb_logout"):
             try:
-                import sys, os
+                import sys
+                import os
                 sys.path.insert(
                     0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
                 )

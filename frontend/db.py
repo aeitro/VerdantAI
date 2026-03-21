@@ -224,8 +224,7 @@ def get_stats(username: str) -> dict:
     confidences = [s["confidence"] for s in scans]
 
     healthy_count  = sum(1 for c in classes if "healthy" in c.lower())
-    diseased_count = total - healthy_count
-
+    
     unique_diseases = len(set(
         c for c in classes if "healthy" not in c.lower()
     ))

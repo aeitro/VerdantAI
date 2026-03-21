@@ -54,11 +54,13 @@ def _headers() -> dict:
         "X-Title": "PlantAI",
     }
 
+
 # ── Required keys — response must contain all of these ────────────────────────
 REQUIRED_KEYS = {
     "overview", "severity", "remedies",
     "dietary_tips", "lifestyle_steps", "when_to_see_expert",
 }
+
 
 # ── In-memory cache ───────────────────────────────────────────────────────────
 _cache: dict[str, dict] = {}

@@ -306,8 +306,10 @@ def clean_label(raw: str) -> str:
 
 
 def confidence_color(conf: float) -> str:
-    if conf >= 80: return "green"
-    if conf >= 50: return "yellow"
+    if conf >= 80:
+        return "green"
+    if conf >= 50: 
+        return "yellow"
     return "red"
 
 
