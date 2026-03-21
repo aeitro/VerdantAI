@@ -23,6 +23,7 @@ Fixes applied
 
 5. Timeout bumped to 45s — free-tier models can be slow, 30s was too tight.
 """
+
 import os
 import requests
 import json
@@ -32,13 +33,10 @@ from dotenv import load_dotenv
 
 # Load .env from project root (one level above backend/)
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
- 
+
+# Key is read at import time but validated lazily at call time
+# so importing this module in CI/tests never raises an error.
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-if not OPENROUTER_API_KEY:
-    raise EnvironmentError(
-        "OPENROUTER_API_KEY is not set. "
-        "Add it to PLANTDISEASEPROJ/.env as: OPENROUTER_API_KEY=sk-or-v1-..."
-    )
 
 # ── Model fallback chain — all free tier ──────────────────────────────────────
 MODELS = [
@@ -47,12 +45,14 @@ MODELS = [
     "google/gemma-3-4b-it:free",
 ]
 
-HEADERS = {
-    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-    "Content-Type": "application/json",
-    "HTTP-Referer": "http://localhost:8501",
-    "X-Title": "PlantAI",
-}
+# Built lazily so the Bearer token always uses the current key value
+def _headers() -> dict:
+    return {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost:8501",
+        "X-Title": "PlantAI",
+    }
 
 # ── Required keys — response must contain all of these ────────────────────────
 REQUIRED_KEYS = {
@@ -148,7 +148,7 @@ def call_model(model: str, prompt: str) -> dict:
     """
     response = requests.post(
         url="https://openrouter.ai/api/v1/chat/completions",
-        headers=HEADERS,
+        headers=_headers(),
         json={
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
@@ -190,6 +190,13 @@ def get_remedy(predicted_class: str) -> dict:
     Try each model in MODELS in order.
     Returns a remedy dict on success, or {"error": "...", "detail": "..."} on failure.
     """
+    # Validate key at call time, not import time — keeps CI/tests from crashing
+    if not OPENROUTER_API_KEY:
+        return {
+            "error": "OPENROUTER_API_KEY is not set.",
+            "detail": "Add it to .env as: OPENROUTER_API_KEY=sk-or-v1-...",
+        }
+
     if predicted_class in _cache:
         return _cache[predicted_class]
 
